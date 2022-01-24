@@ -992,23 +992,6 @@ Terminal::queue_child_exited()
                         g_object_unref);
 }
 
-bool
-Terminal::child_exited_eos_wait_callback()
-{
-        /* If we get this callback, there has been some time elapsed
-         * after child-exited, but no EOS yet. This happens for example
-         * when the primary child started other processes in the background,
-         * which inherited the PTY, and thus keep it open, see
-         * https://gitlab.gnome.org/GNOME/vte/issues/204
-         *
-         * Force an EOS.
-         */
-        if (pty())
-                pty_io_read(pty()->fd(), G_IO_HUP);
-
-        return false; // don't run again
-}
-
 /* Emit an "increase-font-size" signal. */
 void
 Terminal::emit_increase_font_size()
@@ -3316,8 +3299,6 @@ Terminal::child_watch_done(pid_t pid,
         if (pty() || !m_incoming_queue.empty()) {
                 m_child_exit_status = status;
                 m_child_exited_after_eos_pending = true;
-
-                m_child_exited_eos_wait_timer.schedule_seconds(2); // FIXME: better value?
         } else {
                 m_child_exited_after_eos_pending = false;
 
@@ -4169,9 +4150,6 @@ out:
 
                 chunk->set_sealed();
                 chunk->set_eos();
-
-                /* Cancel wait timer */
-                m_child_exited_eos_wait_timer.abort();
 
                 /* Need to process the EOS */
 		if (!is_processing()) {
@@ -10169,8 +10147,6 @@ Terminal::unset_pty(bool notify_widget)
 
         disconnect_pty_read();
         disconnect_pty_write();
-
-        m_child_exited_eos_wait_timer.abort();
 
         /* Clear incoming and outgoing queues */
         m_input_bytes = 0;
