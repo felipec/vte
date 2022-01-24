@@ -953,62 +953,6 @@ Terminal::queue_eof()
                         g_object_unref);
 }
 
-void
-Terminal::emit_child_exited()
-{
-        auto const status = m_child_exit_status;
-        m_child_exit_status = -1;
-
-        if (widget())
-                widget()->emit_child_exited(status);
-}
-
-static gboolean
-emit_child_exited_idle_cb(VteTerminal *terminal)
-try
-{
-        _vte_terminal_get_impl(terminal)->emit_child_exited();
-
-        return G_SOURCE_REMOVE;
-}
-catch (...)
-{
-        vte::log_exception();
-        return G_SOURCE_REMOVE;
-}
-
-/* Emit a "child-exited" signal on idle, so that if the handler destroys
- * the terminal, we're not deep within terminal code callstack
- */
-void
-Terminal::queue_child_exited()
-{
-        _vte_debug_print(VTE_DEBUG_SIGNALS, "Queueing `child-exited'.\n");
-        m_child_exited_after_eos_pending = false;
-
-        g_idle_add_full(G_PRIORITY_HIGH,
-                        (GSourceFunc)emit_child_exited_idle_cb,
-                        g_object_ref(m_terminal),
-                        g_object_unref);
-}
-
-bool
-Terminal::child_exited_eos_wait_callback()
-{
-        /* If we get this callback, there has been some time elapsed
-         * after child-exited, but no EOS yet. This happens for example
-         * when the primary child started other processes in the background,
-         * which inherited the PTY, and thus keep it open, see
-         * https://gitlab.gnome.org/GNOME/vte/issues/204
-         *
-         * Force an EOS.
-         */
-        if (pty())
-                pty_io_read(pty()->fd(), G_IO_HUP);
-
-        return false; // don't run again
-}
-
 /* Emit an "increase-font-size" signal. */
 void
 Terminal::emit_increase_font_size()
@@ -3310,20 +3254,8 @@ Terminal::child_watch_done(pid_t pid,
 
         m_pty_pid = -1;
 
-        /* If we still have a PTY, or data to process, defer emitting the signals
-         * until we have EOF on the PTY, so that we can process all pending data.
-         */
-        if (pty() || !m_incoming_queue.empty()) {
-                m_child_exit_status = status;
-                m_child_exited_after_eos_pending = true;
-
-                m_child_exited_eos_wait_timer.schedule_seconds(2); // FIXME: better value?
-        } else {
-                m_child_exited_after_eos_pending = false;
-
-                if (widget())
-                        widget()->emit_child_exited(status);
-        }
+        if (widget())
+                widget()->emit_child_exited(status);
 }
 
 static void
@@ -4169,9 +4101,6 @@ out:
 
                 chunk->set_sealed();
                 chunk->set_eos();
-
-                /* Cancel wait timer */
-                m_child_exited_eos_wait_timer.abort();
 
                 /* Need to process the EOS */
 		if (!is_processing()) {
@@ -10170,8 +10099,6 @@ Terminal::unset_pty(bool notify_widget)
         disconnect_pty_read();
         disconnect_pty_write();
 
-        m_child_exited_eos_wait_timer.abort();
-
         /* Clear incoming and outgoing queues */
         m_input_bytes = 0;
         m_incoming_queue = {};
@@ -10467,18 +10394,11 @@ Terminal::emit_pending_signals()
                 m_bell_pending = false;
         }
 
-        auto const eos = m_eos_pending;
         if (m_eos_pending) {
                 queue_eof();
                 m_eos_pending = false;
 
                 unset_pty();
-        }
-
-        if (m_child_exited_after_eos_pending && eos) {
-                /* The signal handler could destroy the terminal, so send the signal on idle */
-                queue_child_exited();
-                m_child_exited_after_eos_pending = false;
         }
 }
 

@@ -294,13 +294,7 @@ public:
         guint m_pty_output_source{0};
         bool m_pty_input_active{false};
         pid_t m_pty_pid{-1};           /* pid of child process */
-        int m_child_exit_status{-1};   /* pid's exit status, or -1 */
         bool m_eos_pending{false};
-        bool m_child_exited_after_eos_pending{false};
-        bool child_exited_eos_wait_callback();
-        vte::glib::Timer m_child_exited_eos_wait_timer{std::bind(&Terminal::child_exited_eos_wait_callback,
-                                                                 this),
-                                                       "child-exited-eos-wait-timer"};
         VteReaper *m_reaper;
 
 	/* Queue of chunks of data read from the PTY.
@@ -1023,7 +1017,6 @@ public:
         bool terminate_child () noexcept;
         void child_watch_done(pid_t pid,
                               int status);
-        void emit_child_exited();
 
         void im_commit(std::string_view const& str);
         void im_preedit_set_active(bool active) noexcept;
@@ -1164,7 +1157,6 @@ public:
 
         void queue_cursor_moved();
         void queue_contents_changed();
-        void queue_child_exited();
         void queue_eof();
 
 #if WITH_A11Y && VTE_GTK == 3
