@@ -1160,6 +1160,7 @@ public:
 
         void queue_cursor_moved();
         void queue_contents_changed();
+        void queue_child_exited();
         void queue_eof();
 
 #if WITH_A11Y && VTE_GTK == 3
