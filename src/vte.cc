@@ -4092,6 +4092,9 @@ out:
         if (eos) {
 		_vte_debug_print(VTE_DEBUG_IO, "got PTY EOF\n");
 
+                /* Make a note of the EOS; but do not process it since there may be data
+                 * to be processed first in the incoming queue.
+                 */
                 if (!chunk || chunk->sealed()) {
                         m_incoming_queue.push(vte::base::Chunk::get(chunk));
                         chunk = m_incoming_queue.back().get();
@@ -4099,8 +4102,6 @@ out:
 
                 chunk->set_sealed();
                 chunk->set_eos();
-
-                queue_eof();
 
                 again = false;
         }
@@ -10392,7 +10393,9 @@ Terminal::emit_pending_signals()
         }
 
         if (m_eos_pending) {
+                queue_eof();
                 m_eos_pending = false;
+
                 unset_pty();
         }
 }
