@@ -3265,9 +3265,6 @@ Terminal::child_watch_done(pid_t pid,
 
         m_pty_pid = -1;
 
-        /* Close out the PTY. */
-        unset_pty();
-
         /* Tell observers what's happened. */
         if (m_real_widget)
                 m_real_widget->emit_child_exited(status);
