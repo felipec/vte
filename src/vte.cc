@@ -3431,8 +3431,6 @@ Terminal::pty_channel_eof()
 
         g_object_freeze_notify(object);
 
-        m_eos_pending = true;
-
 	/* Emit a signal that we read an EOF. */
 	queue_eof();
 
@@ -3697,6 +3695,16 @@ Terminal::process_incoming_utf8(ProcessingContext& context,
                         break;
                 }
                 }
+
+                if (chunk.eos()) {
+                        m_eos_pending = true;
+                        /* If there's an unfinished character in the queue, insert a replacement character */
+                        if (m_utf8_decoder.flush()) {
+                                insert_char(m_utf8_decoder.codepoint(), false, true);
+                        }
+
+                        break;
+                }
         }
 
 switched_data_syntax:
@@ -3718,11 +3726,13 @@ Terminal::process_incoming_pcterm(ProcessingContext& context,
 
         auto& decoder = m_converter->decoder();
 
+        auto eos = bool{false};
         auto flush = bool{false};
 
         auto const iend = chunk.end_reading();
         auto ip = chunk.begin_reading();
 
+ start:
         while (ip < iend || flush) {
                 switch (decoder.decode(&ip, flush)) {
                 case vte::base::ICUDecoder::Result::eSomething: {
@@ -3813,6 +3823,18 @@ Terminal::process_incoming_pcterm(ProcessingContext& context,
                         decoder.reset();
                         break;
 
+                }
+
+                if (eos) {
+                        /* Done processing the last chunk */
+                        m_eos_pending = true;
+                        break;
+                }
+
+                if (chunk.eos()) {
+                        /* On EOS, we still need to flush the decoder before we can finish */
+                        eos = flush = true;
+                        goto start;
                 }
         }
 
