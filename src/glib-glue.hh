@@ -225,8 +225,8 @@ private:
                         vte::log_exception();
                 }
 
-                /* The Timer may have been re-scheduled from within the callback.
-                 * In this case, the callback must return false!
+                /* The Timer may have been re-scheduled or removed from within
+                 * the callback. In this case, the callback must return false!
                  * m_source_id is now different (since the old source
                  * ID is still associated with the main context until we return from
                  * this function), after which invalidate_source() will be called,
