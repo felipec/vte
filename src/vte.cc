@@ -3920,8 +3920,9 @@ Terminal::pty_io_read(int const fd,
                         chunk = m_incoming_queue.back().get();
 
 		do {
-                        /* No chunk or at least ¾ full? Get a new chunk */
+                        /* No chunk, chunk sealed or at least ¾ full? Get a new chunk */
 			if (!chunk ||
+                            chunk->sealed() ||
                             chunk->capacity_writing() < chunk->capacity() / 4) {
                                 m_incoming_queue.push(vte::base::Chunk::get(chunk));
                                 chunk = m_incoming_queue.back().get();
@@ -4093,8 +4094,10 @@ out:
         if (eos) {
 		_vte_debug_print(VTE_DEBUG_IO, "got PTY EOF\n");
 
-                if (chunk)
+                if (chunk) {
+                        chunk->sealed();
                         chunk->set_eos();
+                }
 
                 queue_eof();
 
@@ -4120,7 +4123,7 @@ Terminal::feed(std::string_view const& data,
         vte::base::Chunk* chunk = nullptr;
         if (!m_incoming_queue.empty()) {
                 auto& achunk = m_incoming_queue.back();
-                if (length < achunk->capacity_writing())
+                if (length < achunk->capacity_writing() && !achunk->sealed())
                         chunk = achunk.get();
         }
         if (chunk == nullptr) {

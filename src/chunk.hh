@@ -54,6 +54,7 @@ private:
         static constexpr const unsigned k_overlap_size = 1u;
 
         enum class Flags : uint8_t {
+                eSEALED  = 1u << 0,
                 eEOS     = 1u << 1,
                 eCHAINED = 1u << 2,
         };
@@ -172,6 +173,13 @@ public:
 
         // Prune recycled chunks
         static void prune(unsigned int max_size = k_max_free_chunks) noexcept;
+
+        // Returns: whether the chunk is sealed, i.e. must not be used
+        // to write more data into
+        inline constexpr bool sealed() const noexcept { return m_flags & (uint8_t)Flags::eSEALED; }
+
+        // Seal the chunk
+        inline void set_sealed() noexcept { m_flags |= (uint8_t)Flags::eSEALED; }
 
         // Returns: whether the chunk is an EOS (end-of-stream)
         inline constexpr bool eos() const noexcept { return m_flags & (uint8_t)Flags::eEOS; }
