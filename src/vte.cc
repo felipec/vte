@@ -4173,6 +4173,11 @@ out:
                 /* Cancel wait timer */
                 m_child_exited_eos_wait_timer.abort();
 
+                /* Need to process the EOS */
+		if (!is_processing()) {
+			add_process_timeout(this);
+		}
+
                 again = false;
         }
 
