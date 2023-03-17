@@ -3681,15 +3681,13 @@ Terminal::process_incoming_utf8(ProcessingContext& context,
                         break;
                 }
                 }
+        }
 
-                if (chunk.eos()) {
-                        m_eos_pending = true;
-                        /* If there's an unfinished character in the queue, insert a replacement character */
-                        if (m_utf8_decoder.flush()) {
-                                insert_char(m_utf8_decoder.codepoint(), false, true);
-                        }
-
-                        break;
+        if (chunk.eos() && ip == iend) {
+                m_eos_pending = true;
+                /* If there's an unfinished character in the queue, insert a replacement character */
+                if (m_utf8_decoder.flush()) {
+                        insert_char(m_utf8_decoder.codepoint(), false, true);
                 }
         }
 
@@ -3810,24 +3808,24 @@ Terminal::process_incoming_pcterm(ProcessingContext& context,
                         break;
 
                 }
+        }
 
-                if (eos) {
-                        /* Done processing the last chunk */
-                        m_eos_pending = true;
-                        break;
-                }
-
-                if (chunk.eos()) {
-                        /* On EOS, we still need to flush the decoder before we can finish */
-                        eos = flush = true;
-                        goto start;
-                }
+        if (eos) {
+                /* Done processing the last chunk */
+                m_eos_pending = true;
+                return;
         }
 
  switched_data_syntax:
 
         // Update start for data consumed
         chunk.set_begin_reading(ip);
+
+        if (chunk.eos() && ip == chunk.end_reading()) {
+                /* On EOS, we still need to flush the decoder before we can finish */
+                eos = flush = true;
+                goto start;
+        }
 }
 
 #endif /* WITH_ICU */
