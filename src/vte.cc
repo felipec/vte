@@ -3431,7 +3431,7 @@ Terminal::pty_channel_eof()
 
         g_object_freeze_notify(object);
 
-        unset_pty();
+        m_eos_pending = true;
 
 	/* Emit a signal that we read an EOF. */
 	queue_eof();
@@ -10093,6 +10093,8 @@ Terminal::unset_pty(bool notify_widget,
 
         stop_processing(this);
 
+        m_eos_pending = false;
+
         reset_decoder();
 
         /* Clear the outgoing buffer as well. */
@@ -10383,6 +10385,11 @@ Terminal::emit_pending_signals()
                  }
 
                 m_bell_pending = false;
+        }
+
+        if (m_eos_pending) {
+                m_eos_pending = false;
+                unset_pty();
         }
 }
 

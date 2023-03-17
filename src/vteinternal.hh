@@ -296,6 +296,7 @@ public:
         guint m_pty_output_source{0};
         bool m_pty_input_active{false};
         pid_t m_pty_pid{-1};           /* pid of child process */
+        bool m_eos_pending{false};
         VteReaper *m_reaper;
 
 	/* Queue of chunks of data read from the PTY.
