@@ -3293,10 +3293,10 @@ Terminal::child_watch_done(pid_t pid,
 
         m_pty_pid = -1;
 
-        /* If we still have data to process, defer emitting the signals
+        /* If we still have a PTY, or data to process, defer emitting the signals
          * until we have EOF on the PTY, so that we can process all pending data.
          */
-        if (!m_incoming_queue.empty()) {
+        if (pty() || !m_incoming_queue.empty()) {
                 m_child_exit_status = status;
                 m_child_exited_after_eos_pending = true;
         } else {
