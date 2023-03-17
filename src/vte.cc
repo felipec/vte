@@ -10438,6 +10438,7 @@ Terminal::emit_pending_signals()
                 m_bell_pending = false;
         }
 
+        auto const eos = m_eos_pending;
         if (m_eos_pending) {
                 queue_eof();
                 m_eos_pending = false;
@@ -10445,7 +10446,7 @@ Terminal::emit_pending_signals()
                 unset_pty();
         }
 
-        if (m_child_exited_after_eos_pending) {
+        if (m_child_exited_after_eos_pending && eos) {
                 /* The signal handler could destroy the terminal, so send the signal on idle */
                 queue_child_exited();
                 m_child_exited_after_eos_pending = false;
