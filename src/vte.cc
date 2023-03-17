@@ -953,6 +953,16 @@ Terminal::queue_eof()
                         g_object_unref);
 }
 
+void
+Terminal::emit_child_exited()
+{
+        auto const status = m_child_exit_status;
+        m_child_exit_status = -1;
+
+        if (widget())
+                widget()->emit_child_exited(status);
+}
+
 /* Emit an "increase-font-size" signal. */
 void
 Terminal::emit_increase_font_size()
@@ -3254,9 +3264,18 @@ Terminal::child_watch_done(pid_t pid,
 
         m_pty_pid = -1;
 
-        /* Tell observers what's happened. */
-        if (widget())
-                widget()->emit_child_exited(status);
+        /* If we still have data to process, defer emitting the signals
+         * until we have EOF on the PTY, so that we can process all pending data.
+         */
+        if (!m_incoming_queue.empty()) {
+                m_child_exit_status = status;
+                m_child_exited_after_eos_pending = true;
+        } else {
+                m_child_exited_after_eos_pending = false;
+
+                if (widget())
+                        widget()->emit_child_exited(status);
+        }
 }
 
 static void
@@ -10395,6 +10414,11 @@ Terminal::emit_pending_signals()
                 m_eos_pending = false;
 
                 unset_pty();
+        }
+
+        if (m_child_exited_after_eos_pending) {
+                m_child_exited_after_eos_pending = false;
+                emit_child_exited();
         }
 }
 
