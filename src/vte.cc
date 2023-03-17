@@ -921,6 +921,13 @@ Terminal::queue_cursor_moved()
 	m_cursor_moved_pending = true;
 }
 
+void
+Terminal::emit_eof()
+{
+        if (widget())
+                widget()->emit_eof();
+}
+
 static gboolean
 emit_eof_idle_cb(VteTerminal *terminal)
 try
@@ -935,15 +942,6 @@ catch (...)
         return G_SOURCE_REMOVE;
 }
 
-void
-Terminal::emit_eof()
-{
-        if (widget())
-                widget()->emit_eof();
-}
-
-/* Emit a "eof" signal. */
-// FIXMEchpe any particular reason not to handle this immediately?
 void
 Terminal::queue_eof()
 {
@@ -3257,8 +3255,8 @@ Terminal::child_watch_done(pid_t pid,
         m_pty_pid = -1;
 
         /* Tell observers what's happened. */
-        if (m_real_widget)
-                m_real_widget->emit_child_exited(status);
+        if (widget())
+                widget()->emit_child_exited(status);
 }
 
 static void
@@ -3937,6 +3935,7 @@ Terminal::pty_io_read(int const fd,
                                  * and write continuously to chunk->data.
                                  */
                                 auto const save = bp[-1];
+                                errno = 0;
                                 auto ret = read(fd, bp - 1, rem + 1);
                                 auto const pkt_header = bp[-1];
                                 bp[-1] = save;
@@ -3971,7 +3970,8 @@ Terminal::pty_io_read(int const fd,
                                                         }
                                                         if (pkt_header & TIOCPKT_STOP) {
                                                                 pty_scroll_lock_changed(true);
-                                                        } else if (pkt_header & TIOCPKT_START) {
+                                                        }
+                                                        if (pkt_header & TIOCPKT_START) {
                                                                 pty_scroll_lock_changed(false);
                                                         }
                                                 }
