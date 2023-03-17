@@ -921,13 +921,6 @@ Terminal::queue_cursor_moved()
 	m_cursor_moved_pending = true;
 }
 
-void
-Terminal::emit_eof()
-{
-        if (widget())
-                widget()->emit_eof();
-}
-
 static gboolean
 emit_eof_idle_cb(VteTerminal *terminal)
 try
@@ -943,51 +936,21 @@ catch (...)
 }
 
 void
+Terminal::emit_eof()
+{
+        _vte_debug_print(VTE_DEBUG_SIGNALS, "Emitting `eof'.\n");
+        g_signal_emit(m_terminal, signals[SIGNAL_EOF], 0);
+}
+
+/* Emit a "eof" signal. */
+// FIXMEchpe any particular reason not to handle this immediately?
+void
 Terminal::queue_eof()
 {
         _vte_debug_print(VTE_DEBUG_SIGNALS, "Queueing `eof'.\n");
 
         g_idle_add_full(G_PRIORITY_HIGH,
                         (GSourceFunc)emit_eof_idle_cb,
-                        g_object_ref(m_terminal),
-                        g_object_unref);
-}
-
-void
-Terminal::emit_child_exited()
-{
-        auto const status = m_child_exit_status;
-        m_child_exit_status = -1;
-
-        if (widget())
-                widget()->emit_child_exited(status);
-}
-
-static gboolean
-emit_child_exited_idle_cb(VteTerminal *terminal)
-try
-{
-        _vte_terminal_get_impl(terminal)->emit_child_exited();
-
-        return G_SOURCE_REMOVE;
-}
-catch (...)
-{
-        vte::log_exception();
-        return G_SOURCE_REMOVE;
-}
-
-/* Emit a "child-exited" signal on idle, so that if the handler destroys
- * the terminal, we're not deep within terminal code callstack
- */
-void
-Terminal::queue_child_exited()
-{
-        _vte_debug_print(VTE_DEBUG_SIGNALS, "Queueing `child-exited'.\n");
-        m_child_exited_after_eos_pending = false;
-
-        g_idle_add_full(G_PRIORITY_HIGH,
-                        (GSourceFunc)emit_child_exited_idle_cb,
                         g_object_ref(m_terminal),
                         g_object_unref);
 }
@@ -3253,8 +3216,14 @@ reaper_child_exited_cb(VteReaper *reaper,
                        vte::terminal::Terminal* that) noexcept
 try
 {
-        that->child_watch_done(pid_t{ipid}, status);
-        // @that might be destroyed at this point
+        pid_t pid = pid_t{ipid};
+
+        auto terminal = that->m_terminal;
+        /* keep the vte::terminal::Terminal in a death grip */
+        g_object_ref(terminal);
+        that->child_watch_done(pid, status);
+        g_object_unref(terminal);
+        /* Note: terminal may be destroyed at this point */
 }
 catch (...)
 {
@@ -3267,6 +3236,9 @@ Terminal::child_watch_done(pid_t pid,
 {
 	if (pid != m_pty_pid)
                 return;
+
+        GObject *object = G_OBJECT(m_terminal);
+        g_object_freeze_notify(object);
 
         _VTE_DEBUG_IF (VTE_DEBUG_LIFECYCLE) {
                 g_printerr ("Child[%d] exited with status %d\n",
@@ -3293,18 +3265,14 @@ Terminal::child_watch_done(pid_t pid,
 
         m_pty_pid = -1;
 
-        /* If we still have a PTY, or data to process, defer emitting the signals
-         * until we have EOF on the PTY, so that we can process all pending data.
-         */
-        if (pty() || !m_incoming_queue.empty()) {
-                m_child_exit_status = status;
-                m_child_exited_after_eos_pending = true;
-        } else {
-                m_child_exited_after_eos_pending = false;
+        /* Close out the PTY. */
+        unset_pty();
 
-                if (widget())
-                        widget()->emit_child_exited(status);
-        }
+        /* Tell observers what's happened. */
+        if (m_real_widget)
+                m_real_widget->emit_child_exited(status);
+
+        g_object_thaw_notify(object);
 }
 
 static void
@@ -3333,7 +3301,7 @@ Terminal::connect_pty_read()
 
         m_pty_input_source = g_unix_fd_add_full(VTE_CHILD_INPUT_PRIORITY,
                                                 pty()->fd(),
-                                                (GIOCondition)(G_IO_IN | G_IO_PRI | G_IO_HUP | G_IO_ERR),
+                                                (GIOCondition)(G_IO_IN | G_IO_PRI | G_IO_HUP),
                                                 (GUnixFDSourceFunc)io_read_cb,
                                                 this,
                                                 (GDestroyNotify)mark_input_source_invalid_cb);
@@ -3467,6 +3435,22 @@ Terminal::watch_child (pid_t child_pid)
         }
 
         /* FIXMEchpe: call set_size() here? */
+}
+
+/* Handle an EOF from the client. */
+void
+Terminal::pty_channel_eof()
+{
+        GObject *object = G_OBJECT(m_terminal);
+
+        g_object_freeze_notify(object);
+
+        unset_pty();
+
+	/* Emit a signal that we read an EOF. */
+	queue_eof();
+
+        g_object_thaw_notify(object);
 }
 
 /* Reset the input method context. */
@@ -3729,14 +3713,6 @@ Terminal::process_incoming_utf8(ProcessingContext& context,
                 }
         }
 
-        if (chunk.eos() && ip == iend) {
-                m_eos_pending = true;
-                /* If there's an unfinished character in the queue, insert a replacement character */
-                if (m_utf8_decoder.flush()) {
-                        insert_char(m_utf8_decoder.codepoint(), false, true);
-                }
-        }
-
 switched_data_syntax:
 
         // Update start for data consumed
@@ -3756,13 +3732,11 @@ Terminal::process_incoming_pcterm(ProcessingContext& context,
 
         auto& decoder = m_converter->decoder();
 
-        auto eos = bool{false};
         auto flush = bool{false};
 
         auto const iend = chunk.end_reading();
         auto ip = chunk.begin_reading();
 
- start:
         while (ip < iend || flush) {
                 switch (decoder.decode(&ip, flush)) {
                 case vte::base::ICUDecoder::Result::eSomething: {
@@ -3856,22 +3830,10 @@ Terminal::process_incoming_pcterm(ProcessingContext& context,
                 }
         }
 
-        if (eos) {
-                /* Done processing the last chunk */
-                m_eos_pending = true;
-                return;
-        }
-
  switched_data_syntax:
 
         // Update start for data consumed
         chunk.set_begin_reading(ip);
-
-        if (chunk.eos() && ip == chunk.end_reading()) {
-                /* On EOS, we still need to flush the decoder before we can finish */
-                eos = flush = true;
-                goto start;
-        }
 }
 
 #endif /* WITH_ICU */
@@ -3884,7 +3846,7 @@ Terminal::process_incoming_decsixel(ProcessingContext& context,
 {
         auto const [status, ip] = m_sixel_context->parse(chunk.begin_reading(),
                                                          chunk.end_reading(),
-                                                         chunk.eos());
+                                                         false);
 
         // Update start for data consumed
         chunk.set_begin_reading(ip);
@@ -3964,9 +3926,8 @@ Terminal::pty_io_read(int const fd,
                         chunk = m_incoming_queue.back().get();
 
 		do {
-                        /* No chunk, chunk sealed or at least ¾ full? Get a new chunk */
+                        /* No chunk or at least ¾ full? Get a new chunk */
 			if (!chunk ||
-                            chunk->sealed() ||
                             chunk->capacity_writing() < chunk->capacity() / 4) {
                                 m_incoming_queue.push(vte::base::Chunk::get(chunk));
                                 chunk = m_incoming_queue.back().get();
@@ -3983,7 +3944,6 @@ Terminal::pty_io_read(int const fd,
                                  * and write continuously to chunk->data.
                                  */
                                 auto const save = bp[-1];
-                                errno = 0;
                                 auto ret = read(fd, bp - 1, rem + 1);
                                 auto const pkt_header = bp[-1];
                                 bp[-1] = save;
@@ -3998,31 +3958,28 @@ Terminal::pty_io_read(int const fd,
 					default:
                                                 ret--;
 
-                                                if (pkt_header == TIOCPKT_DATA) {
-                                                        bp += ret;
-                                                        rem -= ret;
-                                                        len += ret;
-                                                } else {
-                                                        if (pkt_header & TIOCPKT_IOCTL) {
-                                                                /* We'd like to always be informed when the termios change,
-                                                                 * so we can e.g. detect when no-echo is en/disabled and
-                                                                 * change the cursor/input method/etc., but unfortunately
-                                                                 * the kernel only sends this flag when (old or new) 'local flags'
-                                                                 * include EXTPROC, which is not used often, and due to its side
-                                                                 * effects, cannot be enabled by vte by default.
-                                                                 *
-                                                                 * FIXME: improve the kernel! see discussion in bug 755371
-                                                                 * starting at comment 12
-                                                                 */
-                                                                pty_termios_changed();
-                                                        }
-                                                        if (pkt_header & TIOCPKT_STOP) {
-                                                                pty_scroll_lock_changed(true);
-                                                        }
-                                                        if (pkt_header & TIOCPKT_START) {
-                                                                pty_scroll_lock_changed(false);
-                                                        }
+                                                if (pkt_header & TIOCPKT_IOCTL) {
+                                                        /* We'd like to always be informed when the termios change,
+                                                         * so we can e.g. detect when no-echo is en/disabled and
+                                                         * change the cursor/input method/etc., but unfortunately
+                                                         * the kernel only sends this flag when (old or new) 'local flags'
+                                                         * include EXTPROC, which is not used often, and due to its side
+                                                         * effects, cannot be enabled by vte by default.
+                                                         *
+                                                         * FIXME: improve the kernel! see discussion in bug 755371
+                                                         * starting at comment 12
+                                                         */
+                                                        pty_termios_changed();
                                                 }
+                                                if (pkt_header & TIOCPKT_STOP) {
+                                                        pty_scroll_lock_changed(true);
+                                                } else if (pkt_header & TIOCPKT_START) {
+                                                        pty_scroll_lock_changed(false);
+                                                }
+
+                                                bp += ret;
+                                                rem -= ret;
+                                                len += ret;
 						break;
 				}
 #elif defined(__sun) && defined(HAVE_STROPTS_H)
@@ -4117,9 +4074,6 @@ out:
 				m_pty_input_active ? "yes" : "no");
 	}
 
-        if (condition & G_IO_ERR)
-                err = EIO;
-
 	/* Error? */
 	switch (err) {
         case 0: /* no error */
@@ -4140,21 +4094,7 @@ out:
         if (eos) {
 		_vte_debug_print(VTE_DEBUG_IO, "got PTY EOF\n");
 
-                /* Make a note of the EOS; but do not process it since there may be data
-                 * to be processed first in the incoming queue.
-                 */
-                if (!chunk || chunk->sealed()) {
-                        m_incoming_queue.push(vte::base::Chunk::get(chunk));
-                        chunk = m_incoming_queue.back().get();
-                }
-
-                chunk->set_sealed();
-                chunk->set_eos();
-
-                /* Need to process the EOS */
-		if (!is_processing()) {
-			add_process_timeout(this);
-		}
+                pty_channel_eof();
 
                 again = false;
         }
@@ -4178,7 +4118,7 @@ Terminal::feed(std::string_view const& data,
         vte::base::Chunk* chunk = nullptr;
         if (!m_incoming_queue.empty()) {
                 auto& achunk = m_incoming_queue.back();
-                if (length < achunk->capacity_writing() && !achunk->sealed())
+                if (length < achunk->capacity_writing())
                         chunk = achunk.get();
         }
         if (chunk == nullptr) {
@@ -8013,7 +7953,7 @@ Terminal::~Terminal()
         m_changing_selection = true;
 
         terminate_child();
-        unset_pty(false /* don't notify widget */);
+        unset_pty(false /* don't notify widget */, false /* don't process remaining data */);
         remove_update_timeout(this);
 
         /* Stop processing input. */
@@ -10139,7 +10079,8 @@ Terminal::reset(bool clear_tabstops,
 }
 
 void
-Terminal::unset_pty(bool notify_widget)
+Terminal::unset_pty(bool notify_widget,
+                    bool process_remaining)
 {
         /* This may be called from inside or from widget,
          * and must notify the widget if not called from it.
@@ -10148,14 +10089,23 @@ Terminal::unset_pty(bool notify_widget)
         disconnect_pty_read();
         disconnect_pty_write();
 
-        /* Clear incoming and outgoing queues */
-        m_input_bytes = 0;
-        m_incoming_queue = {};
-        _vte_byte_array_clear(m_outgoing);
+        /* Take one last shot at processing whatever data is pending,
+         * then flush the buffers in case we're about to run a new
+         * command, disconnecting the timeout. */
+        if (!m_incoming_queue.empty() && process_remaining) {
+                process_incoming();
+                while (!m_incoming_queue.empty())
+                        m_incoming_queue.pop();
 
-        stop_processing(this); // FIXMEchpe only if m_incoming_queue.empty() !!!
+                m_input_bytes = 0;
+        }
+
+        stop_processing(this);
 
         reset_decoder();
+
+        /* Clear the outgoing buffer as well. */
+        _vte_byte_array_clear(m_outgoing);
 
         m_pty.reset();
 
@@ -10164,13 +10114,14 @@ Terminal::unset_pty(bool notify_widget)
 }
 
 bool
-Terminal::set_pty(vte::base::Pty *new_pty)
+Terminal::set_pty(vte::base::Pty *new_pty,
+                  bool process_remaining)
 {
         if (pty().get() == new_pty)
                 return false;
 
         if (pty()) {
-                unset_pty(false /* don't notify widget */);
+                unset_pty(false /* don't notify widget */, process_remaining);
         }
 
         m_pty = vte::base::make_ref(new_pty);
@@ -10441,20 +10392,6 @@ Terminal::emit_pending_signals()
                  }
 
                 m_bell_pending = false;
-        }
-
-        auto const eos = m_eos_pending;
-        if (m_eos_pending) {
-                queue_eof();
-                m_eos_pending = false;
-
-                unset_pty();
-        }
-
-        if (m_child_exited_after_eos_pending && eos) {
-                /* The signal handler could destroy the terminal, so send the signal on idle */
-                queue_child_exited();
-                m_child_exited_after_eos_pending = false;
         }
 }
 
