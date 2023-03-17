@@ -3216,14 +3216,8 @@ reaper_child_exited_cb(VteReaper *reaper,
                        vte::terminal::Terminal* that) noexcept
 try
 {
-        pid_t pid = pid_t{ipid};
-
-        auto terminal = that->m_terminal;
-        /* keep the vte::terminal::Terminal in a death grip */
-        g_object_ref(terminal);
-        that->child_watch_done(pid, status);
-        g_object_unref(terminal);
-        /* Note: terminal may be destroyed at this point */
+        that->child_watch_done(pid_t{ipid}, status);
+        // @that might be destroyed at this point
 }
 catch (...)
 {
