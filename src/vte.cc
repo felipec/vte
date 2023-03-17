@@ -3287,7 +3287,7 @@ Terminal::connect_pty_read()
 
         m_pty_input_source = g_unix_fd_add_full(VTE_CHILD_INPUT_PRIORITY,
                                                 pty()->fd(),
-                                                (GIOCondition)(G_IO_IN | G_IO_PRI | G_IO_HUP),
+                                                (GIOCondition)(G_IO_IN | G_IO_PRI | G_IO_HUP | G_IO_ERR),
                                                 (GUnixFDSourceFunc)io_read_cb,
                                                 this,
                                                 (GDestroyNotify)mark_input_source_invalid_cb);
@@ -4059,6 +4059,9 @@ out:
 				again ? "yes" : "no",
 				m_pty_input_active ? "yes" : "no");
 	}
+
+        if (condition & G_IO_ERR)
+                err = EIO;
 
 	/* Error? */
 	switch (err) {
