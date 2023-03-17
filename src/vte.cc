@@ -3944,28 +3944,30 @@ Terminal::pty_io_read(int const fd,
 					default:
                                                 ret--;
 
-                                                if (pkt_header & TIOCPKT_IOCTL) {
-                                                        /* We'd like to always be informed when the termios change,
-                                                         * so we can e.g. detect when no-echo is en/disabled and
-                                                         * change the cursor/input method/etc., but unfortunately
-                                                         * the kernel only sends this flag when (old or new) 'local flags'
-                                                         * include EXTPROC, which is not used often, and due to its side
-                                                         * effects, cannot be enabled by vte by default.
-                                                         *
-                                                         * FIXME: improve the kernel! see discussion in bug 755371
-                                                         * starting at comment 12
-                                                         */
-                                                        pty_termios_changed();
+                                                if (pkt_header == TIOCPKT_DATA) {
+                                                        bp += ret;
+                                                        rem -= ret;
+                                                        len += ret;
+                                                } else {
+                                                        if (pkt_header & TIOCPKT_IOCTL) {
+                                                                /* We'd like to always be informed when the termios change,
+                                                                 * so we can e.g. detect when no-echo is en/disabled and
+                                                                 * change the cursor/input method/etc., but unfortunately
+                                                                 * the kernel only sends this flag when (old or new) 'local flags'
+                                                                 * include EXTPROC, which is not used often, and due to its side
+                                                                 * effects, cannot be enabled by vte by default.
+                                                                 *
+                                                                 * FIXME: improve the kernel! see discussion in bug 755371
+                                                                 * starting at comment 12
+                                                                 */
+                                                                pty_termios_changed();
+                                                        }
+                                                        if (pkt_header & TIOCPKT_STOP) {
+                                                                pty_scroll_lock_changed(true);
+                                                        } else if (pkt_header & TIOCPKT_START) {
+                                                                pty_scroll_lock_changed(false);
+                                                        }
                                                 }
-                                                if (pkt_header & TIOCPKT_STOP) {
-                                                        pty_scroll_lock_changed(true);
-                                                } else if (pkt_header & TIOCPKT_START) {
-                                                        pty_scroll_lock_changed(false);
-                                                }
-
-                                                bp += ret;
-                                                rem -= ret;
-                                                len += ret;
 						break;
 				}
 #elif defined(__sun) && defined(HAVE_STROPTS_H)
