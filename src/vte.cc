@@ -3237,9 +3237,6 @@ Terminal::child_watch_done(pid_t pid,
 	if (pid != m_pty_pid)
                 return;
 
-        GObject *object = G_OBJECT(m_terminal);
-        g_object_freeze_notify(object);
-
         _VTE_DEBUG_IF (VTE_DEBUG_LIFECYCLE) {
                 g_printerr ("Child[%d] exited with status %d\n",
                             pid, status);
@@ -3268,8 +3265,6 @@ Terminal::child_watch_done(pid_t pid,
         /* Tell observers what's happened. */
         if (m_real_widget)
                 m_real_widget->emit_child_exited(status);
-
-        g_object_thaw_notify(object);
 }
 
 static void
