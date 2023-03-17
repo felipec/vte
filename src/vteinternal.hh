@@ -288,8 +288,7 @@ public:
         inline constexpr auto& pty() const noexcept { return m_pty; }
 
         void unset_pty(bool notify_widget = true);
-        bool set_pty(vte::base::Pty* pty,
-                     bool process_remaining = true);
+        bool set_pty(vte::base::Pty* pty);
 
         guint m_pty_input_source{0};
         guint m_pty_output_source{0};

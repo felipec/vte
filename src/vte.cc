@@ -10120,8 +10120,7 @@ Terminal::unset_pty(bool notify_widget)
 }
 
 bool
-Terminal::set_pty(vte::base::Pty *new_pty,
-                  bool process_remaining)
+Terminal::set_pty(vte::base::Pty *new_pty)
 {
         if (pty().get() == new_pty)
                 return false;
