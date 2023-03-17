@@ -10102,8 +10102,6 @@ Terminal::unset_pty(bool notify_widget)
 
         stop_processing(this); // FIXMEchpe only if m_incoming_queue.empty() !!!
 
-        m_eos_pending = false;
-
         reset_decoder();
 
         m_pty.reset();
