@@ -287,8 +287,7 @@ public:
         vte::base::RefPtr<vte::base::Pty> m_pty{};
         inline constexpr auto& pty() const noexcept { return m_pty; }
 
-        void unset_pty(bool notify_widget = true,
-                       bool process_remaining = true);
+        void unset_pty(bool notify_widget = true);
         bool set_pty(vte::base::Pty* pty,
                      bool process_remaining = true);
 

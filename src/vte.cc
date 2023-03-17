@@ -7969,7 +7969,7 @@ Terminal::~Terminal()
         m_changing_selection = true;
 
         terminate_child();
-        unset_pty(false /* don't notify widget */, false /* don't process remaining data */);
+        unset_pty(false /* don't notify widget */);
         remove_update_timeout(this);
 
         /* Stop processing input. */
@@ -10095,8 +10095,7 @@ Terminal::reset(bool clear_tabstops,
 }
 
 void
-Terminal::unset_pty(bool notify_widget,
-                    bool process_remaining)
+Terminal::unset_pty(bool notify_widget)
 {
         /* This may be called from inside or from widget,
          * and must notify the widget if not called from it.
@@ -10104,17 +10103,6 @@ Terminal::unset_pty(bool notify_widget,
 
         disconnect_pty_read();
         disconnect_pty_write();
-
-        /* Take one last shot at processing whatever data is pending,
-         * then flush the buffers in case we're about to run a new
-         * command, disconnecting the timeout. */
-        if (!m_incoming_queue.empty() && process_remaining) {
-                process_incoming();
-                while (!m_incoming_queue.empty())
-                        m_incoming_queue.pop();
-
-                m_input_bytes = 0;
-        }
 
         stop_processing(this);
 
@@ -10139,7 +10127,7 @@ Terminal::set_pty(vte::base::Pty *new_pty,
                 return false;
 
         if (pty()) {
-                unset_pty(false /* don't notify widget */, process_remaining);
+                unset_pty(false /* don't notify widget */);
         }
 
         m_pty = vte::base::make_ref(new_pty);
