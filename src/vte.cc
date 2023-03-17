@@ -4094,10 +4094,13 @@ out:
         if (eos) {
 		_vte_debug_print(VTE_DEBUG_IO, "got PTY EOF\n");
 
-                if (chunk) {
-                        chunk->sealed();
-                        chunk->set_eos();
+                if (!chunk || chunk->sealed()) {
+                        m_incoming_queue.push(vte::base::Chunk::get(chunk));
+                        chunk = m_incoming_queue.back().get();
                 }
+
+                chunk->set_sealed();
+                chunk->set_eos();
 
                 queue_eof();
 
