@@ -938,8 +938,8 @@ catch (...)
 void
 Terminal::emit_eof()
 {
-        _vte_debug_print(VTE_DEBUG_SIGNALS, "Emitting `eof'.\n");
-        g_signal_emit(m_terminal, signals[SIGNAL_EOF], 0);
+        if (widget())
+                widget()->emit_eof();
 }
 
 /* Emit a "eof" signal. */
