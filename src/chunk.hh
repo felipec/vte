@@ -54,6 +54,7 @@ private:
         static constexpr const unsigned k_overlap_size = 1u;
 
         enum class Flags : uint8_t {
+                eEOS     = 1u << 1,
                 eCHAINED = 1u << 2,
         };
 
@@ -118,7 +119,7 @@ public:
         {
                 assert(m_size == k_overlap_size && m_start == m_size); // or call reset() here?
 
-                if (true) {
+                if (!previous->eos()) {
                         std::memcpy(m_data,
                                     previous->m_data + previous->m_size - k_overlap_size,
                                     k_overlap_size);
@@ -171,6 +172,12 @@ public:
 
         // Prune recycled chunks
         static void prune(unsigned int max_size = k_max_free_chunks) noexcept;
+
+        // Returns: whether the chunk is an EOS (end-of-stream)
+        inline constexpr bool eos() const noexcept { return m_flags & (uint8_t)Flags::eEOS; }
+
+        // Set the chunk EOS
+        inline void set_eos() noexcept { m_flags |= (uint8_t)Flags::eEOS; }
 
         // Returns: whether the chunk was chained to some other chunk
         // and thus m_start may be set to < k_overlap_size.

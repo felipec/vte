@@ -3832,7 +3832,7 @@ Terminal::process_incoming_decsixel(ProcessingContext& context,
 {
         auto const [status, ip] = m_sixel_context->parse(chunk.begin_reading(),
                                                          chunk.end_reading(),
-                                                         false);
+                                                         chunk.eos());
 
         // Update start for data consumed
         chunk.set_begin_reading(ip);
@@ -4084,6 +4084,9 @@ out:
 
         if (eos) {
 		_vte_debug_print(VTE_DEBUG_IO, "got PTY EOF\n");
+
+                if (chunk)
+                        chunk->set_eos();
 
                 pty_channel_eof();
 
