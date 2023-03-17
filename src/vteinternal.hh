@@ -1005,7 +1005,6 @@ public:
         void pty_termios_changed();
         void pty_scroll_lock_changed(bool locked);
 
-        void pty_channel_eof();
         bool pty_io_read(int const fd,
                          GIOCondition const condition);
         bool pty_io_write(int const fd,

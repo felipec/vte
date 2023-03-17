@@ -3423,20 +3423,6 @@ Terminal::watch_child (pid_t child_pid)
         /* FIXMEchpe: call set_size() here? */
 }
 
-/* Handle an EOF from the client. */
-void
-Terminal::pty_channel_eof()
-{
-        GObject *object = G_OBJECT(m_terminal);
-
-        g_object_freeze_notify(object);
-
-	/* Emit a signal that we read an EOF. */
-	queue_eof();
-
-        g_object_thaw_notify(object);
-}
-
 /* Reset the input method context. */
 void
 Terminal::im_reset()
@@ -4110,7 +4096,7 @@ out:
                 if (chunk)
                         chunk->set_eos();
 
-                pty_channel_eof();
+                queue_eof();
 
                 again = false;
         }
