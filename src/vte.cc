@@ -10104,14 +10104,16 @@ Terminal::unset_pty(bool notify_widget)
         disconnect_pty_read();
         disconnect_pty_write();
 
-        stop_processing(this);
+        /* Clear incoming and outgoing queues */
+        m_input_bytes = 0;
+        m_incoming_queue = {};
+        _vte_byte_array_clear(m_outgoing);
+
+        stop_processing(this); // FIXMEchpe only if m_incoming_queue.empty() !!!
 
         m_eos_pending = false;
 
         reset_decoder();
-
-        /* Clear the outgoing buffer as well. */
-        _vte_byte_array_clear(m_outgoing);
 
         m_pty.reset();
 
