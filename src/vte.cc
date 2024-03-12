@@ -896,44 +896,6 @@ Terminal::queue_eof()
                         g_object_unref);
 }
 
-void
-Terminal::emit_child_exited()
-{
-        auto const status = m_child_exit_status;
-        m_child_exit_status = -1;
-
-        if (widget())
-                widget()->emit_child_exited(status);
-}
-
-static gboolean
-emit_child_exited_idle_cb(VteTerminal *terminal)
-try
-{
-        _vte_terminal_get_impl(terminal)->emit_child_exited();
-
-        return G_SOURCE_REMOVE;
-}
-catch (...)
-{
-        vte::log_exception();
-        return G_SOURCE_REMOVE;
-}
-
-/* Emit a "child-exited" signal on idle, so that if the handler destroys
- * the terminal, we're not deep within terminal code callstack
- */
-void
-Terminal::queue_child_exited()
-{
-        _vte_debug_print(VTE_DEBUG_SIGNALS, "Queueing `child-exited'.\n");
-
-        g_idle_add_full(G_PRIORITY_HIGH,
-                        (GSourceFunc)emit_child_exited_idle_cb,
-                        g_object_ref(m_terminal),
-                        g_object_unref);
-}
-
 /* Emit an "increase-font-size" signal. */
 void
 Terminal::emit_increase_font_size()
