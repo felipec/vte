@@ -291,7 +291,6 @@ public:
         guint m_pty_output_source{0};
         bool m_pty_input_active{false};
         pid_t m_pty_pid{-1};           /* pid of child process */
-        int m_child_exit_status{-1};   /* pid's exit status, or -1 */
         bool m_eos_pending{false};
         VteReaper *m_reaper;
 
@@ -971,7 +970,6 @@ public:
         void pty_termios_changed();
         void pty_scroll_lock_changed(bool locked);
 
-        void pty_channel_eof();
         bool pty_io_read(int const fd,
                          GIOCondition const condition,
                          int amount = -1);
@@ -984,7 +982,6 @@ public:
         bool terminate_child () noexcept;
         void child_watch_done(pid_t pid,
                               int status);
-        void emit_child_exited();
 
         void im_commit(std::string_view const& str);
         void im_preedit_set_active(bool active) noexcept;
@@ -1124,7 +1121,6 @@ public:
 
         void queue_cursor_moved();
         void queue_contents_changed();
-        void queue_child_exited();
         void queue_eof();
 
 #ifdef WITH_A11Y
