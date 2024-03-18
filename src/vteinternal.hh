@@ -971,8 +971,7 @@ public:
         void pty_scroll_lock_changed(bool locked);
 
         bool pty_io_read(int const fd,
-                         GIOCondition const condition,
-                         int amount = -1);
+                         GIOCondition const condition);
         bool pty_io_write(int const fd,
                           GIOCondition const condition);
 

@@ -3217,19 +3217,6 @@ Terminal::child_watch_done(pid_t pid,
 
         m_pty_pid = -1;
 
-        /* If we still have a PTY, or data to process, defer emitting the signals
-         * until we have EOF on the PTY, so that we can process all pending data.
-         */
-        if (pty()) {
-                /* Read and process about 64k synchronously, up to EOF or EAGAIN
-                 * or other error, to make sure we consume the child's output.
-                 * See https://gitlab.gnome.org/GNOME/vte/-/issues/2627 */
-                pty_io_read(pty()->fd(), G_IO_IN, 65536);
-                if (!m_incoming_queue.empty()) {
-                        process_incoming();
-                }
-        }
-
         if (widget())
                 widget()->emit_child_exited(status);
 }
@@ -3805,8 +3792,7 @@ Terminal::process_incoming_pcterm(ProcessingContext& context,
 
 bool
 Terminal::pty_io_read(int const fd,
-                      GIOCondition const condition,
-                      int amount)
+                      GIOCondition const condition)
 {
 	_vte_debug_print (VTE_DEBUG_WORK, ".");
         _vte_debug_print(VTE_DEBUG_IO, "::pty_io_read condition %02x\n", condition);
@@ -3832,30 +3818,22 @@ Terminal::pty_io_read(int const fd,
 		int rem, len;
 		guint bytes, max_bytes;
 
+		/* Limit the amount read between updates, so as to
+		 * 1. maintain fairness between multiple terminals;
+		 * 2. prevent reading the entire output of a command in one
+		 *    pass, i.e. we always try to refresh the terminal ~40Hz.
+		 *    See time_process_incoming() where we estimate the
+		 *    maximum number of bytes we can read/process in between
+		 *    updates.
+		 */
+		max_bytes = m_active_terminals_link != nullptr ?
+		            g_list_length(g_active_terminals) - 1 : 0;
+		if (max_bytes) {
+			max_bytes = m_max_input_bytes / max_bytes;
+		} else {
+			max_bytes = m_max_input_bytes;
+		}
 		bytes = m_input_bytes;
-                if (G_LIKELY (amount < 0)) {
-                        /* Limit the amount read between updates, so as to
-                         * 1. maintain fairness between multiple terminals;
-                         * 2. prevent reading the entire output of a command in one
-                         *    pass, i.e. we always try to refresh the terminal ~40Hz.
-                         *    See time_process_incoming() where we estimate the
-                         *    maximum number of bytes we can read/process in between
-                         *    updates.
-                         */
-                        max_bytes = m_active_terminals_link != nullptr ?
-                                    g_list_length(g_active_terminals) - 1 : 0;
-                        if (max_bytes) {
-                                max_bytes = m_max_input_bytes / max_bytes;
-                        } else {
-                                max_bytes = m_max_input_bytes;
-                        }
-                } else {
-                        /* 'amount' explicitly specified. Try to read this much on top
-                         * of what we might already have read and not yet processed,
-                         * but stop at EAGAIN or EOS.
-                         * See https://gitlab.gnome.org/GNOME/vte/-/issues/2627 */
-                        max_bytes = bytes + amount;
-                }
 
                 /* If possible, try adding more data to the chunk at the back of the queue */
                 if (!m_incoming_queue.empty())
@@ -3882,10 +3860,7 @@ Terminal::pty_io_read(int const fd,
                                  */
                                 auto const save = bp[-1];
                                 errno = 0;
-                                ssize_t ret;
-                                do {
-                                        ret = read(fd, bp - 1, rem + 1);
-                                } while (ret == -1 && errno == EINTR);
+                                auto ret = read(fd, bp - 1, rem + 1);
                                 auto const pkt_header = bp[-1];
                                 bp[-1] = save;
 
@@ -3937,9 +3912,7 @@ Terminal::pty_io_read(int const fd,
 				databuf.buf = (caddr_t)bp;
 				databuf.maxlen = rem;
 
-                                do {
-                                        ret = getmsg(fd, &ctlbuf, &databuf, &flags);
-                                } while (ret == -1 && errno == EINTR);
+				ret = getmsg(fd, &ctlbuf, &databuf, &flags);
 				if (ret == -1) {
 					err = errno;
 					goto out;
@@ -3973,10 +3946,7 @@ Terminal::pty_io_read(int const fd,
 					len += databuf.len;
 				}
 #else /* neither TIOCPKT nor STREAMS pty */
-                                ssize_t ret;
-                                do {
-                                        ret = read(fd, bp, rem);
-                                } while (ret == -1 && errno == EINTR);
+				int ret = read(fd, bp, rem);
 				switch (ret) {
 					case -1:
 						err = errno;
@@ -3996,15 +3966,11 @@ out:
 			chunk->add_size(len);
 			bytes += len;
 		} while (bytes < max_bytes &&
-                         // This means that either a read into a not-yet-¾-full
+                         // This means that a read into a not-yet-¾-full
                          // chunk used up all the available capacity, so
                          // let's assume that we can read more and thus
                          // we'll get a new chunk in the loop above and
-                         // continue on (see commit 49a0cdf11); or a short read
-                         // occurred in which case we also keep looping, it's
-                         // important in order to consume all the data after the
-                         // child quits, see
-                         // https://gitlab.gnome.org/GNOME/vte/-/issues/2627
+                         // continue on. (See commit 49a0cdf11.)
                          // Note also that on EOS or error, this condition
                          // is false (since there was capacity, but it wasn't
                          // used up).
