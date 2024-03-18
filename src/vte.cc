@@ -3707,11 +3707,6 @@ Terminal::child_watch_done(pid_t pid,
                 if (!m_incoming_queue.empty()) {
                         process_incoming();
                 }
-
-                /* Stop processing data. Optional. Keeping processing data from grandchildren and
-                 * other writers would also be a reasonable choice. It makes a difference if the
-                 * terminal is held open after the child exits. */
-                unset_pty();
         }
 
         if (widget())
